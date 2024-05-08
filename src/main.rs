@@ -41,7 +41,7 @@ fn main() {
 }
 
 pub async fn db_connection() -> DatabaseConnection {
-    let mut opt = ConnectOptions::new(env::var("DB_POSTGRESQL_URL").unwrap());
+    let mut opt = ConnectOptions::new(env::var("MEGA_DB_POSTGRESQL_URL").unwrap());
     // max_connections is properly for double size of the cpu core
     opt.max_connections(16)
         .min_connections(2)
@@ -50,7 +50,7 @@ pub async fn db_connection() -> DatabaseConnection {
         .idle_timeout(Duration::from_secs(8))
         .max_lifetime(Duration::from_secs(8))
         .sqlx_logging(
-            env::var("DB_SQLX_LOGGING")
+            env::var("MEGA_DB_SQLX_LOGGING")
                 .unwrap()
                 .parse::<bool>()
                 .unwrap(),
@@ -121,7 +121,7 @@ pub async fn add_and_push_to_remote(workspace: PathBuf) {
                     url.set_path(&new_path);
 
                     println!("Found URL: {}", url);
-                    record.mega_url = Set(url.to_string());
+                    record.mega_url = Set(new_path);
 
                     Command::new("git")
                         .arg("remote")
