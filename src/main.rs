@@ -138,6 +138,7 @@ pub async fn add_and_push_to_remote(workspace: PathBuf) {
                         .output()
                         .unwrap();
                     let push_res = Command::new("git").arg("push").arg("nju").output().unwrap();
+                    Command::new("git").arg("push").arg("nju").arg("--tags").output().unwrap();
 
                     if push_res.status.success() {
                         record.status = Set(RepoSyncStatus::Succeed);
@@ -147,6 +148,7 @@ pub async fn add_and_push_to_remote(workspace: PathBuf) {
                         record.err_message =
                             Set(Some(String::from_utf8_lossy(&push_res.stderr).to_string()));
                     }
+                    record.updated_at = Set(chrono::Utc::now().naive_utc());
                     record.save(&conn).await.unwrap();
 
                     println!("Push res: {}", String::from_utf8_lossy(&push_res.stdout));
