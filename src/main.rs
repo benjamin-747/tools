@@ -11,8 +11,8 @@ use std::{
 use clap::Parser;
 use csv::ReaderBuilder;
 use regex::Regex;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use sea_orm::{ActiveValue::NotSet, ConnectOptions, Database, IntoActiveModel, Set};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, ActiveModelTrait};
 use tracing::log;
 use url::Url;
 use walkdir::WalkDir;
@@ -107,7 +107,11 @@ pub async fn add_and_push_to_remote(workspace: PathBuf) {
                         updated_at: Set(chrono::Utc::now().naive_utc()),
                     }
                 } else {
-                    model.unwrap().into_active_model()
+                    let res = model.unwrap();
+                    if res.status == RepoSyncStatus::Succeed {
+                        continue;
+                    }
+                    res.into_active_model()
                 };
                 let mut capture = re.captures_iter(&stdout);
                 if let Some(capture) = capture.next() {
@@ -138,7 +142,12 @@ pub async fn add_and_push_to_remote(workspace: PathBuf) {
                         .output()
                         .unwrap();
                     let push_res = Command::new("git").arg("push").arg("nju").output().unwrap();
-                    Command::new("git").arg("push").arg("nju").arg("--tags").output().unwrap();
+                    Command::new("git")
+                        .arg("push")
+                        .arg("nju")
+                        .arg("--tags")
+                        .output()
+                        .unwrap();
 
                     if push_res.status.success() {
                         record.status = Set(RepoSyncStatus::Succeed);
