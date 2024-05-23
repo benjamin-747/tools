@@ -76,6 +76,33 @@ pub async fn add_and_push_to_remote(workspace: PathBuf) {
                 exit(1);
             }
 
+            let crate_name = entry.file_name().to_str().unwrap().to_owned();
+            let model = repo_sync_status::Entity::find()
+                .filter(repo_sync_status::Column::CrateName.eq(crate_name))
+                .one(&conn)
+                .await
+                .unwrap();
+
+            let mut record = if model.is_none() {
+                repo_sync_status::ActiveModel {
+                    id: NotSet,
+                    crate_name: Set(entry.file_name().to_str().unwrap().to_owned()),
+                    github_url: Set(None),
+                    mega_url: NotSet,
+                    crate_type: Set(CrateType::Lib),
+                    status: NotSet,
+                    err_message: Set(None),
+                    created_at: Set(chrono::Utc::now().naive_utc()),
+                    updated_at: Set(chrono::Utc::now().naive_utc()),
+                }
+            } else {
+                let res = model.unwrap();
+                if res.status == RepoSyncStatus::Succeed {
+                    continue;
+                }
+                res.into_active_model()
+            };
+
             let output = Command::new("git")
                 .arg("remote")
                 .arg("-v")
@@ -87,32 +114,6 @@ pub async fn add_and_push_to_remote(workspace: PathBuf) {
                 // Create a regular expression pattern to match URLs
                 let re = Regex::new(r"https://github\.com/[^\s]+").unwrap();
 
-                let crate_name = entry.file_name().to_str().unwrap().to_owned();
-                let model = repo_sync_status::Entity::find()
-                    .filter(repo_sync_status::Column::CrateName.eq(crate_name))
-                    .one(&conn)
-                    .await
-                    .unwrap();
-
-                let mut record = if model.is_none() {
-                    repo_sync_status::ActiveModel {
-                        id: NotSet,
-                        crate_name: Set(entry.file_name().to_str().unwrap().to_owned()),
-                        github_url: Set(None),
-                        mega_url: NotSet,
-                        crate_type: Set(CrateType::Lib),
-                        status: NotSet,
-                        err_message: Set(None),
-                        created_at: Set(chrono::Utc::now().naive_utc()),
-                        updated_at: Set(chrono::Utc::now().naive_utc()),
-                    }
-                } else {
-                    let res = model.unwrap();
-                    if res.status == RepoSyncStatus::Succeed {
-                        continue;
-                    }
-                    res.into_active_model()
-                };
                 let mut capture = re.captures_iter(&stdout);
                 if let Some(capture) = capture.next() {
                     let mut url = Url::parse(&capture[0]).unwrap();
