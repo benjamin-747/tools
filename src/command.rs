@@ -17,4 +17,5 @@ pub struct Cli {
 pub enum Commands {
     /// Push Local Repo to mega
     Upload,
+    Crate,
 }

@@ -1,30 +1,22 @@
 use std::{
-    env,
     fs::{self, File},
     io::{BufRead, BufReader, Write},
     path::PathBuf,
-    process::{exit, Command},
     str::FromStr,
-    time::Duration,
 };
 
 use clap::Parser;
 use csv::ReaderBuilder;
-use regex::Regex;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
-use sea_orm::{ActiveValue::NotSet, ConnectOptions, Database, IntoActiveModel, Set};
-use tracing::log;
 use url::Url;
-use walkdir::WalkDir;
 
-use mega_tool::command::{Cli, Commands};
-
-use entity::{
-    db_enums::{CrateType, RepoSyncStatus},
-    repo_sync_status,
+use mega_tool::{
+    command::{Cli, Commands},
+    crate_to_repo::convert_crate_to_repo,
+    handle_repo::add_and_push_to_remote,
 };
 
-fn main() {
+#[tokio::main]
+async fn main() {
     dotenvy::dotenv().ok();
     // tracing_subscriber::fmt::init();
     // convert_origin();
@@ -35,139 +27,10 @@ fn main() {
     let args = Cli::parse();
     match args.command {
         Commands::Upload => {
-            add_and_push_to_remote(args.workspace);
+            add_and_push_to_remote(args.workspace).await;
         }
-    }
-}
-
-pub async fn db_connection() -> DatabaseConnection {
-    let mut opt = ConnectOptions::new(env::var("MEGA_DB_POSTGRESQL_URL").unwrap());
-    // max_connections is properly for double size of the cpu core
-    opt.max_connections(16)
-        .min_connections(2)
-        .acquire_timeout(Duration::from_secs(30))
-        .connect_timeout(Duration::from_secs(20))
-        .idle_timeout(Duration::from_secs(8))
-        .max_lifetime(Duration::from_secs(8))
-        .sqlx_logging(
-            env::var("MEGA_DB_SQLX_LOGGING")
-                .unwrap()
-                .parse::<bool>()
-                .unwrap(),
-        )
-        .sqlx_logging_level(log::LevelFilter::Debug);
-    Database::connect(opt)
-        .await
-        .expect("Database connection failed")
-}
-
-#[tokio::main]
-pub async fn add_and_push_to_remote(workspace: PathBuf) {
-    let conn = db_connection().await;
-
-    for entry in WalkDir::new(workspace)
-        .max_depth(2)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        if entry.file_type().is_dir() && entry.depth() == 2 {
-            if let Err(err) = env::set_current_dir(entry.path()) {
-                eprintln!("Error changing directory: {}", err);
-                exit(1);
-            }
-
-            let crate_name = entry.file_name().to_str().unwrap().to_owned();
-            let model = repo_sync_status::Entity::find()
-                .filter(repo_sync_status::Column::CrateName.eq(crate_name))
-                .one(&conn)
-                .await
-                .unwrap();
-
-            let mut record = if model.is_none() {
-                repo_sync_status::ActiveModel {
-                    id: NotSet,
-                    crate_name: Set(entry.file_name().to_str().unwrap().to_owned()),
-                    github_url: Set(None),
-                    mega_url: NotSet,
-                    crate_type: Set(CrateType::Lib),
-                    status: NotSet,
-                    err_message: Set(None),
-                    created_at: Set(chrono::Utc::now().naive_utc()),
-                    updated_at: Set(chrono::Utc::now().naive_utc()),
-                }
-            } else {
-                let res = model.unwrap();
-                if res.status == RepoSyncStatus::Succeed {
-                    continue;
-                }
-                res.into_active_model()
-            };
-
-            let output = Command::new("git")
-                .arg("remote")
-                .arg("-v")
-                .output()
-                .unwrap();
-
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                // Create a regular expression pattern to match URLs
-                let re = Regex::new(r"https://github\.com/[^\s]+").unwrap();
-
-                let mut capture = re.captures_iter(&stdout);
-                if let Some(capture) = capture.next() {
-                    let mut url = Url::parse(&capture[0]).unwrap();
-                    record.github_url = Set(Some(url.to_string()));
-                    url.set_host(Some("localhost")).unwrap();
-                    url.set_scheme("http").unwrap();
-                    url.set_port(Some(8000)).unwrap();
-                    let path = url.path().to_owned();
-                    let new_path = format!("/third-part{}", path);
-                    url.set_path(&new_path);
-
-                    println!("Found URL: {}", url);
-                    record.mega_url = Set(new_path);
-
-                    Command::new("git")
-                        .arg("remote")
-                        .arg("remove")
-                        .arg("nju")
-                        .output()
-                        .unwrap();
-
-                    Command::new("git")
-                        .arg("remote")
-                        .arg("add")
-                        .arg("nju")
-                        .arg(url.to_string())
-                        .output()
-                        .unwrap();
-                    let push_res = Command::new("git").arg("push").arg("nju").output().unwrap();
-                    Command::new("git")
-                        .arg("push")
-                        .arg("nju")
-                        .arg("--tags")
-                        .output()
-                        .unwrap();
-
-                    if push_res.status.success() {
-                        record.status = Set(RepoSyncStatus::Succeed);
-                        record.err_message = Set(None);
-                    } else {
-                        record.status = Set(RepoSyncStatus::Failed);
-                        record.err_message =
-                            Set(Some(String::from_utf8_lossy(&push_res.stderr).to_string()));
-                    }
-                    record.updated_at = Set(chrono::Utc::now().naive_utc());
-                    record.save(&conn).await.unwrap();
-
-                    println!("Push res: {}", String::from_utf8_lossy(&push_res.stdout));
-                    println!("Push err: {}", String::from_utf8_lossy(&push_res.stderr));
-                }
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                eprintln!("Error running 'git remote -v':\n{}", stderr);
-            }
+        Commands::Crate => {
+            convert_crate_to_repo(args.workspace).await;
         }
     }
 }
