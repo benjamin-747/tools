@@ -9,7 +9,7 @@ use std::{
 
 use entity::{db_enums::RepoSyncStatus, repo_sync_status};
 use flate2::bufread::GzDecoder;
-use git2::{IndexAddOption, Repository, Signature};
+use git2::{Repository, Signature};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set, Unchanged};
 use tar::Archive;
 use url::Url;
@@ -61,6 +61,7 @@ pub async fn convert_crate_to_repo(workspace: PathBuf) {
                 });
 
                 let uncompress_path = remove_extension(&crate_v);
+                empty_folder(repo.workdir().unwrap()).unwrap();
                 copy_all_files(&uncompress_path, repo.workdir().unwrap()).unwrap();
 
                 let version = &crate_v
@@ -70,8 +71,7 @@ pub async fn convert_crate_to_repo(workspace: PathBuf) {
                     .unwrap()
                     .replace(&format!("{}-", crate_name), "")
                     .replace(".crate", "");
-                add_and_commit(&repo, version);
-                empty_folder(repo.workdir().unwrap()).unwrap();
+                add_and_commit(&repo, version, &repo_path);
                 fs::remove_dir_all(uncompress_path).unwrap();
             }
 
@@ -105,14 +105,17 @@ pub async fn convert_crate_to_repo(workspace: PathBuf) {
         }
     }
 
-    fn add_and_commit(repo: &Repository, version: &str) {
+    fn add_and_commit(repo: &Repository, version: &str, repo_path: &Path) {
+        if let Err(err) = env::set_current_dir(repo_path) {
+            eprintln!("Error changing directory: {}", err);
+            exit(1);
+        }
+        // Add all changes in the working directory to the index
+        Command::new("git").arg("add").arg("./").output().unwrap();
+
         // Get the repository index
         let mut index = repo.index().unwrap();
 
-        // Add all changes in the working directory to the index
-        index
-            .add_all(["*"].iter(), IndexAddOption::DEFAULT, None)
-            .unwrap();
         index.write().unwrap();
 
         // Create a tree from the index
