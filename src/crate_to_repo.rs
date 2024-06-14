@@ -61,6 +61,9 @@ pub async fn convert_crate_to_repo(workspace: PathBuf) {
                 });
 
                 let uncompress_path = remove_extension(&crate_v);
+                if fs::read_dir(&uncompress_path).is_err() {
+                    continue;
+                }
                 empty_folder(repo.workdir().unwrap()).unwrap();
                 copy_all_files(&uncompress_path, repo.workdir().unwrap()).unwrap();
 
