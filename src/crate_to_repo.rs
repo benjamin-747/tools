@@ -178,9 +178,10 @@ pub async fn convert_crate_to_repo(workspace: PathBuf) {
             let dest_path = dst.join(file_name);
 
             if path.is_dir() {
-                copy_all_files(&path, &dest_path).unwrap();
+                if !path.ends_with(".git") {
+                    copy_all_files(&path, &dest_path).unwrap();
+                }
             } else {
-                // println!("from: {:?}, to: {:?}", path, dest_path);
                 fs::copy(&path, &dest_path).unwrap();
             }
         }
