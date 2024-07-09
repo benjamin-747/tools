@@ -8,6 +8,7 @@ pub mod command;
 pub mod crate_to_repo;
 pub mod handle_repo;
 pub mod util;
+pub mod kafka;
 
 pub async fn get_record(
     conn: &DatabaseConnection,

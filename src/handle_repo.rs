@@ -5,17 +5,19 @@ use std::process::Command;
 
 use entity::db_enums::RepoSyncStatus;
 use regex::Regex;
-use sea_orm::Set;
 use sea_orm::ActiveModelTrait;
+use sea_orm::Set;
 use sea_orm::Unchanged;
 use url::Url;
 use walkdir::WalkDir;
 
+use crate::kafka;
+use crate::kafka::RepoMessage;
 use crate::util;
 
 pub async fn add_and_push_to_remote(workspace: PathBuf) {
     let conn = util::db_connection().await;
-
+    let producer = kafka::get_producer();
     for entry in WalkDir::new(workspace)
         .max_depth(2)
         .into_iter()
@@ -83,6 +85,13 @@ pub async fn add_and_push_to_remote(workspace: PathBuf) {
                     if push_res.status.success() {
                         record.status = Set(RepoSyncStatus::Succeed);
                         record.err_message = Set(None);
+                        let kafka_payload: RepoMessage = record.clone().into();
+                        kafka::producer::send_message(
+                            &producer,
+                            &env::var("KAFKA_TOPIC").unwrap(),
+                            bincode::serialize(&kafka_payload).unwrap(),
+                        )
+                        .await;
                     } else {
                         record.status = Set(RepoSyncStatus::Failed);
                         record.err_message =

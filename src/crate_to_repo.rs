@@ -7,18 +7,24 @@ use std::{
     str::FromStr,
 };
 
-use entity::{db_enums::RepoSyncStatus, repo_sync_status};
 use flate2::bufread::GzDecoder;
 use git2::{Repository, Signature};
+use rdkafka::producer::FutureProducer;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, Set, Unchanged};
 use tar::Archive;
 use url::Url;
 use walkdir::WalkDir;
 
-use crate::util;
+use entity::{db_enums::RepoSyncStatus, repo_sync_status};
+
+use crate::{
+    kafka::{self, RepoMessage},
+    util,
+};
 
 pub async fn convert_crate_to_repo(workspace: PathBuf) {
     let conn = util::db_connection().await;
+    let producer = kafka::get_producer();
 
     for crate_entry in WalkDir::new(workspace)
         .min_depth(1)
@@ -74,12 +80,12 @@ pub async fn convert_crate_to_repo(workspace: PathBuf) {
                     .unwrap()
                     .replace(&format!("{}-", crate_name), "")
                     .replace(".crate", "");
-                add_and_commit(&repo, version, &repo_path);
+                add_and_commit(&repo, version, repo_path);
                 fs::remove_dir_all(uncompress_path).unwrap();
             }
 
             if repo_path.exists() {
-                push_to_remote(&conn, crate_name, repo_path, record).await;
+                push_to_remote(&conn, crate_name, repo_path, record, &producer).await;
             } else {
                 eprintln!("empty crates directory:{:?}", crate_entry.path())
             }
@@ -207,6 +213,7 @@ pub async fn convert_crate_to_repo(workspace: PathBuf) {
         crate_name: &str,
         repo_path: &Path,
         mut record: repo_sync_status::ActiveModel,
+        producer: &FutureProducer,
     ) {
         if let Err(err) = env::set_current_dir(repo_path) {
             eprintln!("Error changing directory: {}", err);
@@ -253,6 +260,13 @@ pub async fn convert_crate_to_repo(workspace: PathBuf) {
         if push_res.status.success() {
             record.status = Set(RepoSyncStatus::Succeed);
             record.err_message = Set(None);
+            let kafka_payload: RepoMessage = record.clone().into();
+            kafka::producer::send_message(
+                producer,
+                &env::var("KAFKA_TOPIC").unwrap(),
+                bincode::serialize(&kafka_payload).unwrap(),
+            )
+            .await;
         } else {
             record.status = Set(RepoSyncStatus::Failed);
             record.err_message = Set(Some(String::from_utf8_lossy(&push_res.stderr).to_string()));

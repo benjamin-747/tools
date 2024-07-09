@@ -18,12 +18,7 @@ use mega_tool::{
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
-    // tracing_subscriber::fmt::init();
-    // convert_origin();
-    // convert0817();
-    // move_file_0826_github();
-    // convert_script();
-    // convert_cratesio_csv();
+    tracing_subscriber::fmt::init();
     let args = Cli::parse();
     match args.command {
         Commands::Upload => {

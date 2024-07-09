@@ -13,3 +13,4 @@ path = "src/lib.rs"
 serde = { workspace = true, features = ["derive"] }
 chrono = { workspace = true }
 sea-orm = { workspace = true, features = ["sqlx-postgres"] }
+bincode = { workspace = true }
