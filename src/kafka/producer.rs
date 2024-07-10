@@ -12,9 +12,10 @@ pub fn new_producer(brokers: &str) -> FutureProducer {
         .expect("Producer creation error")
 }
 
-pub async fn send_message(producer: &FutureProducer, topic_name: &str, kafka_payload: Vec<u8>) {
+pub async fn send_message(producer: &FutureProducer, topic_name: &str, kafka_payload: String) {
     let producer = producer.clone();
     let topic_name = topic_name.to_owned();
+    let kafka_payload = kafka_payload.to_owned();
     tokio::spawn(async move {
         let produce_future = producer.send(
             FutureRecord::to(&topic_name)

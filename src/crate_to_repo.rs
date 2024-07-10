@@ -18,7 +18,7 @@ use walkdir::WalkDir;
 use entity::{db_enums::RepoSyncStatus, repo_sync_status};
 
 use crate::{
-    kafka::{self, RepoMessage},
+    kafka::{self},
     util,
 };
 
@@ -260,20 +260,19 @@ pub async fn convert_crate_to_repo(workspace: PathBuf) {
         if push_res.status.success() {
             record.status = Set(RepoSyncStatus::Succeed);
             record.err_message = Set(None);
-            let kafka_payload: RepoMessage = record.clone().into();
-            kafka::producer::send_message(
-                producer,
-                &env::var("KAFKA_TOPIC").unwrap(),
-                bincode::serialize(&kafka_payload).unwrap(),
-            )
-            .await;
         } else {
             record.status = Set(RepoSyncStatus::Failed);
             record.err_message = Set(Some(String::from_utf8_lossy(&push_res.stderr).to_string()));
         }
         record.updated_at = Set(chrono::Utc::now().naive_utc());
-        record.save(conn).await.unwrap();
-
+        let res = record.save(conn).await.unwrap();
+        let kafka_payload: repo_sync_status::Model = res.try_into().unwrap();
+        kafka::producer::send_message(
+            producer,
+            &env::var("KAFKA_TOPIC").unwrap(),
+            serde_json::to_string(&kafka_payload).unwrap(),
+        )
+        .await;
         println!("Push res: {}", String::from_utf8_lossy(&push_res.stdout));
         println!("Push err: {}", String::from_utf8_lossy(&push_res.stderr));
     }
