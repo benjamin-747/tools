@@ -54,7 +54,7 @@ pub async fn add_and_push_to_remote(workspace: PathBuf) {
                     url.set_scheme("http").unwrap();
                     url.set_port(Some(8000)).unwrap();
                     let path = url.path().to_owned();
-                    let new_path = format!("/third-part{}", path);
+                    let new_path = format!("/third-part/crates{}", path);
                     url.set_path(&new_path);
 
                     println!("Found URL: {}", url);
